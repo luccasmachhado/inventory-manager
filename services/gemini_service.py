@@ -1,17 +1,14 @@
 import os
+import json
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Inicializa o cliente oficial da nova SDK do Gemini
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 def analyze_receipt_image(image_bytes: bytes):
-    """
-    Opção B: Usa o Gemini 2.5/1.5 Flash via google-genai para extrair itens de uma foto de nota fiscal.
-    """
     prompt = (
         "Analise esta imagem de nota fiscal de supermercado. "
         "Retorne estritamente um array JSON válido contendo objetos com as chaves: "
@@ -20,7 +17,7 @@ def analyze_receipt_image(image_bytes: bytes):
     )
     
     response = client.models.generate_content(
-        model='gemini-1.5-flash',
+        model='gemini-3.8-flash',
         contents=[
             prompt,
             types.Part.from_bytes(
@@ -29,12 +26,15 @@ def analyze_receipt_image(image_bytes: bytes):
             ),
         ],
     )
-    return response.text
+    
+    # Limpa eventuais marcações markdown e converte para objeto Python
+    clean_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(clean_text)
+    except json.JSONDecodeError:
+        return {"raw_text": response.text}
 
 def generate_recipe_from_ingredients(ingredients: list[str]):
-    """
-    Gera uma receita prática baseada nos ingredientes próximos ao vencimento.
-    """
     ingredients_str = ", ".join(ingredients)
     prompt = (
         f"Com base estritamente nos seguintes ingredientes disponíveis na minha despensa: {ingredients_str}, "
@@ -43,7 +43,7 @@ def generate_recipe_from_ingredients(ingredients: list[str]):
     )
     
     response = client.models.generate_content(
-        model='gemini-1.5-flash',
+        model='gemini-3.8-flash',
         contents=prompt,
     )
     return response.text

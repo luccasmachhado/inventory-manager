@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import receipts, recipes
+from routers import receipts, recipes, test_firebase
 
 app = FastAPI(
     title="Despensa Inteligente API",
@@ -20,6 +20,7 @@ app.add_middleware(
 # Registro das rotas
 app.include_router(receipts.router, prefix="/api/receipts", tags=["Notas Fiscais"])
 app.include_router(recipes.router, prefix="/api/recipes", tags=["Receitas"])
+app.include_router(test_firebase.router)
 
 @app.get("/", tags=["Health Check"])
 def health_check():

@@ -6,3 +6,4 @@ beautifulsoup4>=4.12.3
 google-genai>=1.0.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.9
+firebase-admin>=6.5.0
