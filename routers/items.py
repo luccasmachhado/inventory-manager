@@ -10,7 +10,11 @@ class ItemSchema(BaseModel):
     quantity: str
     unit: str
     category: str
+<<<<<<< HEAD
     expiration_date: str  
+=======
+    expiration_date: str  # Formato DD/MM/AAAA
+>>>>>>> 3c147fc8fab9eae0d101df6e5feaad3b08ca7dcf
     user_id: str
 
 @router.post("/")
