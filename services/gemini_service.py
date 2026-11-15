@@ -12,14 +12,14 @@ def analyze_receipt_image(image_bytes: bytes):
     prompt = (
         "Analise esta imagem de nota fiscal de supermercado. "
         "Retorne estritamente um array JSON válido contendo objetos com as chaves: "
-        "'name' (nome do produto) e 'quantity' (quantidade estimada ou numérica). "
+        "'name' (nome do produto), 'quantity' (quantidade estimada ou numérica) e total_value (valor individual do produto). "
         "Não inclua marcações markdown extras como ```json, apenas o texto JSON bruto."
     )
     
     response = client.models.generate_content(
         model='gemini-3.8-flash',
         contents=[
-            prompt,
+            prompt, 
             types.Part.from_bytes(
                 data=image_bytes,
                 mime_type='image/jpeg',

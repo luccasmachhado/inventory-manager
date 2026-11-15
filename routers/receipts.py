@@ -1,28 +1,95 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
+from typing import Optional
 from services.scraper_service import scrape_nfce_items
 from services.gemini_service import analyze_receipt_image
+from config.firebase_config import get_db
+from datetime import datetime
 
 router = APIRouter()
 
 class QRCodeRequest(BaseModel):
     url: str
+    user_id: str  # Precisamos do user_id para vincular os itens ao usuário
 
 @router.post("/scrape-qrcode")
-def process_qrcode(payload: QRCodeRequest):
-    """Abordagem A: Processa a leitura do QR Code da NFC-e via Web Scraping."""
+def process_and_save_qrcode(payload: QRCodeRequest):
+    """Processa o QR Code da NFC-e via Scraper e salva os itens automaticamente no Firestore."""
     try:
+        # 1. Executa o scraping
         data = scrape_nfce_items(payload.url)
-        return data
+        items_list = data.get("items", [])
+        
+        db = get_db()
+        saved_items = []
+
+        # 2. Varre os itens encontrados e salva um a um no Firestore
+        for item in items_list:
+            doc_ref = db.collection("items").document()
+            
+            # Padroniza com os mesmos parâmetros do ItemSchema manual
+            item_data = {
+                "id": doc_ref.id,
+                "name": item.get("name", "Produto Desconhecido"),
+                "quantity": str(item.get("quantity", "1")),
+                "unit": item.get("unit", "UN"),
+                "category": "", # Categoria padrão para itens de nota
+                "expiration_date": "", # O usuário pode preencher depois no app
+                "user_id": payload.user_id
+            }
+            
+            doc_ref.set(item_data)
+            saved_items.append(item_data)
+
+        return {
+            "status": "success",
+            "source": "scraper",
+            "store": data.get("store", "Desconhecido"),
+            "saved_count": len(saved_items),
+            "items": saved_items
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/ocr-image")
-async def process_ocr_image(file: UploadFile = File(...)):
-    """Abordagem B (Fallback): Processa imagem da nota fiscal via Gemini OCR."""
+async def process_and_save_ocr_image(
+    file: UploadFile = File(...), 
+    user_id: str = Form(...) # Recebe o user_id junto com o arquivo de imagem via form-data
+):
+    """Processa imagem da nota fiscal via Gemini OCR e salva os itens no Firestore."""
     try:
         image_bytes = await file.read()
         result_json = analyze_receipt_image(image_bytes)
-        return {"source": "gemini_ocr", "raw_result": result_json}
+        
+        # Tratativa caso o Gemini retorne um dicionário contendo os itens
+        items_list = result_json.get("items", []) if isinstance(result_json, dict) else result_json
+        
+        db = get_db()
+        saved_items = []
+
+        # Varre os itens extraídos pelo OCR e salva no Firestore
+        for item in items_list:
+            doc_ref = db.collection("items").document()
+            
+            item_data = {
+                "id": doc_ref.id,
+                "name": item.get("name", "Produto Desconhecido"),
+                "quantity": str(item.get("quantity", "1")),
+                "unit": item.get("unit", "UN"),
+                "category": "",
+                "expiration_date": "",
+                "user_id": user_id
+            }
+            
+            doc_ref.set(item_data)
+            saved_items.append(item_data)
+
+        return {
+            "status": "success",
+            "source": "gemini_ocr",
+            "store": result_json.get("store", "Desconhecido") if isinstance(result_json, dict) else "Desconhecido",
+            "saved_count": len(saved_items),
+            "items": saved_items
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
