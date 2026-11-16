@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import receipts, recipes, test_firebase, items
+from routers import auth, receipts, recipes, test_firebase, items
 
 app = FastAPI(
     title="Despensa Inteligente API",
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 # Registro das rotas
+app.include_router(auth.router, prefix="/api/auth", tags=["Autenticação"])
 app.include_router(receipts.router, prefix="/api/receipts", tags=["Notas Fiscais"])
 app.include_router(recipes.router, prefix="/api/recipes", tags=["Receitas"])
 app.include_router(items.router, prefix="/api/items", tags=["Itens"])
