@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 from typing import Optional
 from services.scraper_service import scrape_nfce_items
 from services.gemini_service import analyze_receipt_image
+from services.auth_service import get_current_user
 from config.firebase_config import get_db
 from datetime import datetime
 
@@ -10,12 +11,17 @@ router = APIRouter()
 
 class QRCodeRequest(BaseModel):
     url: str
-    user_id: str  # Precisamos do user_id para vincular os itens ao usuário
+    # user_id removido daqui, pois pegaremos automaticamente do token JWT
 
 @router.post("/scrape-qrcode")
-def process_and_save_qrcode(payload: QRCodeRequest):
-    """Processa o QR Code da NFC-e via Scraper e salva os itens automaticamente no Firestore."""
+def process_and_save_qrcode(
+    payload: QRCodeRequest, 
+    current_user: dict = Depends(get_current_user)
+):
+    """Processa o QR Code da NFC-e via Scraper e salva os itens automaticamente para o usuário logado."""
     try:
+        uid = current_user["uid"]
+        
         # 1. Executa o scraping
         data = scrape_nfce_items(payload.url)
         items_list = data.get("items", [])
@@ -27,7 +33,6 @@ def process_and_save_qrcode(payload: QRCodeRequest):
         for item in items_list:
             doc_ref = db.collection("items").document()
             
-            # Padroniza com os mesmos parâmetros do ItemSchema manual
             item_data = {
                 "id": doc_ref.id,
                 "name": item.get("name", "Produto Desconhecido"),
@@ -35,7 +40,7 @@ def process_and_save_qrcode(payload: QRCodeRequest):
                 "unit": item.get("unit", "UN"),
                 "category": "", # Categoria padrão para itens de nota
                 "expiration_date": "", # O usuário pode preencher depois no app
-                "user_id": payload.user_id
+                "user_id": uid  # <--- Inserido automaticamente do token JWT
             }
             
             doc_ref.set(item_data)
@@ -54,10 +59,12 @@ def process_and_save_qrcode(payload: QRCodeRequest):
 @router.post("/ocr-image")
 async def process_and_save_ocr_image(
     file: UploadFile = File(...), 
-    user_id: str = Form(...) # Recebe o user_id junto com o arquivo de imagem via form-data
+    current_user: dict = Depends(get_current_user) # <--- Pegando o usuário logado via JWT
 ):
-    """Processa imagem da nota fiscal via Gemini OCR e salva os itens no Firestore."""
+    """Processa imagem da nota fiscal via Gemini OCR e salva os itens automaticamente para o usuário logado."""
     try:
+        uid = current_user["uid"]
+        
         image_bytes = await file.read()
         result_json = analyze_receipt_image(image_bytes)
         
@@ -78,7 +85,7 @@ async def process_and_save_ocr_image(
                 "unit": item.get("unit", "UN"),
                 "category": "",
                 "expiration_date": "",
-                "user_id": user_id
+                "user_id": uid  # <--- Inserido automaticamente do token JWT
             }
             
             doc_ref.set(item_data)
