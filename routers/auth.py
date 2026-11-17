@@ -39,7 +39,7 @@ def register_user(user: UserRegisterSchema):
             "uid": user_record.uid,
             "name": user.name,
             "email": user.email,
-            "telegram_chat_uid": user.telegram_chat_id
+            "telegram_chat_id": user.telegram_chat_id
         }
         db.collection("users").document(user_record.uid).set(user_data)
 
