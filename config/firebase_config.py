@@ -1,26 +1,34 @@
+import json
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from dotenv import load_dotenv
 
-# Carrega as variáveis de ambiente (busca o .env na raiz do projeto)
 load_dotenv()
 
-# Caminho para o arquivo JSON de credenciais do Firebase Service Account
 CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "serviceAccountKey.json")
+CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
-# Inicializa o Firebase Admin SDK apenas se ainda não foi inicializado
-if not firebase_admin._apps:
-    if os.path.exists(CREDENTIALS_PATH):
-        cred = credentials.Certificate(CREDENTIALS_PATH)
-        firebase_admin.initialize_app(cred)
-    else:
-        # Modo de desenvolvimento/fallback usando credenciais padrão se configuradas no ambiente
-        firebase_admin.initialize_app()
+_db = None
 
-# Instância global do Firestore para ser reutilizada
-db = firestore.client()
+
+def _init_firebase():
+    if not firebase_admin._apps:
+        if CREDENTIALS_JSON:
+            cred_dict = json.loads(CREDENTIALS_JSON)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        elif os.path.exists(CREDENTIALS_PATH):
+            cred = credentials.Certificate(CREDENTIALS_PATH)
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
+
 
 def get_db():
     """Dependency do FastAPI para injetar o cliente do Firestore nas rotas."""
-    return db
+    global _db
+    if _db is None:
+        _init_firebase()
+        _db = firestore.client()
+    return _db
