@@ -47,3 +47,20 @@ def create_recipe(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/my-recipes")
+def get_my_recipes(current_user: dict = Depends(get_current_user)):
+    """Busca as receitas geradas e salvas pelo usuário autenticado."""
+    try:
+        uid = current_user["uid"]
+        db = get_db()
+
+        recipes_ref = db.collection("recipes").where("user_id", "==", uid).stream()
+        recipes = [doc.to_dict() for doc in recipes_ref]
+
+        # Ordena pelas mais recentes se existir created_at
+        recipes.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+
+        return {"status": "success", "recipes": recipes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar receitas: {str(e)}")
