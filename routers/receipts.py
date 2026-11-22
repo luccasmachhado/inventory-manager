@@ -1,62 +1,69 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from services.scraper_service import scrape_nfce_items
 from services.gemini_service import analyze_receipt_image
 from services.auth_service import get_current_user
+from services.telegram_service import check_and_notify_single_item
 from config.firebase_config import get_db
-from datetime import datetime
 import base64
-from pydantic import BaseModel
 
 router = APIRouter()
 
+
 class QRCodeRequest(BaseModel):
     url: str
-    # user_id removido daqui, pois pegaremos automaticamente do token JWT
+
 
 @router.post("/scrape-qrcode")
 def process_and_save_qrcode(
-    payload: QRCodeRequest, 
-    current_user: dict = Depends(get_current_user)
+    payload: QRCodeRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
 ):
     """Processa o QR Code da NFC-e via Scraper e salva os itens automaticamente para o usuário logado."""
     try:
         uid = current_user["uid"]
-        
-        # 1. Executa o scraping
+
         data = scrape_nfce_items(payload.url)
         items_list = data.get("items", [])
-        
+
         db = get_db()
         saved_items = []
 
-        # 2. Varre os itens encontrados e salva um a um no Firestore
         for item in items_list:
             doc_ref = db.collection("items").document()
-            
+            exp_date = str(item.get("expiration_date") or "").strip()
+
             item_data = {
                 "id": doc_ref.id,
                 "name": item.get("name", "Produto Desconhecido"),
                 "quantity": str(item.get("quantity", "1")),
                 "unit": item.get("unit", "UN"),
-                "category": "", # Categoria padrão para itens de nota
-                "expiration_date": "", # O usuário pode preencher depois no app
-                "user_id": uid  # <--- Inserido automaticamente do token JWT
+                "category": str(item.get("category") or ""),
+                "expiration_date": exp_date,
+                "notified_48h": False,
+                "user_id": uid,
             }
-            
+
             doc_ref.set(item_data)
             saved_items.append(item_data)
+
+            if exp_date:
+                background_tasks.add_task(
+                    check_and_notify_single_item, doc_ref.id, item_data
+                )
 
         return {
             "status": "success",
             "source": "scraper",
             "store": data.get("store", "Desconhecido"),
             "saved_count": len(saved_items),
-            "items": saved_items
+            "items": saved_items,
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 class OcrBase64Request(BaseModel):
     image_base64: str
@@ -67,6 +74,7 @@ class OcrBase64Request(BaseModel):
 @router.post("/ocr-base64")
 def process_and_save_ocr_base64(
     payload: OcrBase64Request,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
     """Recebe imagem em base64 via JSON, processa via Gemini OCR e salva os itens no Firestore."""
@@ -105,19 +113,26 @@ def process_and_save_ocr_base64(
 
         for item in items_list:
             doc_ref = db.collection("items").document()
+            exp_date = str(item.get("expiration_date") or "").strip()
 
             item_data = {
                 "id": doc_ref.id,
                 "name": str(item.get("name") or "Produto Desconhecido").strip(),
                 "quantity": str(item.get("quantity") or "1"),
                 "unit": str(item.get("unit") or "UN"),
-                "category": "",
-                "expiration_date": "",
+                "category": str(item.get("category") or ""),
+                "expiration_date": exp_date,
+                "notified_48h": False,
                 "user_id": uid,
             }
 
             doc_ref.set(item_data)
             saved_items.append(item_data)
+
+            if exp_date:
+                background_tasks.add_task(
+                    check_and_notify_single_item, doc_ref.id, item_data
+                )
 
         store_name = (
             result_json.get("store", "Desconhecido")
