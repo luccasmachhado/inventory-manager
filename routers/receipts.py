@@ -65,6 +65,7 @@ async def process_and_save_ocr_image(
     try:
         uid = current_user["uid"]
         image_bytes = await file.read()
+        print("DEBUG OCR -> filename:", file.filename, "content_type:", file.content_type, "len:", len(image_bytes), "head:", image_bytes[:10])
 
         if not image_bytes:
             raise HTTPException(status_code=400, detail="Arquivo de imagem vazio.")
