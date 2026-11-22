@@ -8,31 +8,44 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-def analyze_receipt_image(image_bytes: bytes):
+def analyze_receipt_image(image_bytes: bytes, mime_type: str = "image/jpeg"):
+    if not image_bytes:
+        raise ValueError("A imagem enviada está vazia.")
+
+    safe_mime = mime_type if mime_type in ("image/jpeg", "image/png", "image/webp") else "image/jpeg"
+
     prompt = (
         "Analise esta imagem de nota fiscal de supermercado. "
-        "Retorne estritamente um array JSON válido contendo objetos com as chaves: "
-        "'name' (nome do produto), 'quantity' (quantidade estimada ou numérica) e total_value (valor individual do produto). "
+        "Retorne estritamente um JSON válido no formato: "
+        "{\"store\": \"nome do estabelecimento ou Desconhecido\", \"items\": ["
+        "{\"name\": \"nome do produto\", \"quantity\": 1, \"unit\": \"UN\", \"total_value\": 0.0}"
+        "]}. "
         "Não inclua marcações markdown extras como ```json, apenas o texto JSON bruto."
     )
-    
+
     response = client.models.generate_content(
-        model='gemini-3.8-flash',
+        model="gemini-3.8-flash",
         contents=[
-            prompt, 
+            prompt,
             types.Part.from_bytes(
                 data=image_bytes,
-                mime_type='image/jpeg',
+                mime_type=safe_mime,
             ),
         ],
     )
-    
-    # Limpa eventuais marcações markdown e converte para objeto Python
-    clean_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+
+    raw = (response.text or "").strip()
+    clean_text = raw.replace("```json", "").replace("```", "").strip()
+
     try:
-        return json.loads(clean_text)
+        parsed = json.loads(clean_text)
+        if isinstance(parsed, list):
+            return {"store": "Desconhecido", "items": parsed}
+        if isinstance(parsed, dict):
+            return parsed
+        return {"store": "Desconhecido", "items": []}
     except json.JSONDecodeError:
-        return {"raw_text": response.text}
+        return {"store": "Desconhecido", "items": [], "raw_text": raw}
 
 def generate_recipe_from_ingredients(ingredients: list[str]):
     ingredients_str = ", ".join(ingredients)

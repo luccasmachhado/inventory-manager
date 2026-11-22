@@ -58,45 +58,62 @@ def process_and_save_qrcode(
 
 @router.post("/ocr-image")
 async def process_and_save_ocr_image(
-    file: UploadFile = File(...), 
-    current_user: dict = Depends(get_current_user) # <--- Pegando o usuário logado via JWT
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
 ):
     """Processa imagem da nota fiscal via Gemini OCR e salva os itens automaticamente para o usuário logado."""
     try:
         uid = current_user["uid"]
-        
         image_bytes = await file.read()
-        result_json = analyze_receipt_image(image_bytes)
-        
-        # Tratativa caso o Gemini retorne um dicionário contendo os itens
-        items_list = result_json.get("items", []) if isinstance(result_json, dict) else result_json
-        
+
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="Arquivo de imagem vazio.")
+
+        result_json = analyze_receipt_image(
+            image_bytes=image_bytes,
+            mime_type=file.content_type or "image/jpeg",
+        )
+
+        raw_items = (
+            result_json.get("items", [])
+            if isinstance(result_json, dict)
+            else result_json
+        )
+        items_list = [i for i in raw_items if isinstance(i, dict)] if isinstance(raw_items, list) else []
+
         db = get_db()
         saved_items = []
 
-        # Varre os itens extraídos pelo OCR e salva no Firestore
         for item in items_list:
             doc_ref = db.collection("items").document()
-            
+
             item_data = {
                 "id": doc_ref.id,
-                "name": item.get("name", "Produto Desconhecido"),
-                "quantity": str(item.get("quantity", "1")),
-                "unit": item.get("unit", "UN"),
+                "name": str(item.get("name") or "Produto Desconhecido").strip(),
+                "quantity": str(item.get("quantity") or "1"),
+                "unit": str(item.get("unit") or "UN"),
                 "category": "",
                 "expiration_date": "",
-                "user_id": uid  # <--- Inserido automaticamente do token JWT
+                "user_id": uid,
             }
-            
+
             doc_ref.set(item_data)
             saved_items.append(item_data)
+
+        store_name = (
+            result_json.get("store", "Desconhecido")
+            if isinstance(result_json, dict)
+            else "Desconhecido"
+        )
 
         return {
             "status": "success",
             "source": "gemini_ocr",
-            "store": result_json.get("store", "Desconhecido") if isinstance(result_json, dict) else "Desconhecido",
+            "store": store_name,
             "saved_count": len(saved_items),
-            "items": saved_items
+            "items": saved_items,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
