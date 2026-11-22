@@ -2,23 +2,34 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from config.firebase_config import init_firebase
 from routers import auth, notifications, receipts, recipes, test_firebase, items
 from services.telegram_service import check_and_notify_expiring_items
 
 scheduler = AsyncIOScheduler()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Inicializa o Firebase Admin SDK na subida da API
+    init_firebase()
+
     # Inicia a verificação automática a cada 6 horas
-    scheduler.add_job(check_and_notify_expiring_items, "interval", hours=6)
-    scheduler.start()
+    if not scheduler.running:
+        scheduler.add_job(check_and_notify_expiring_items, "interval", hours=6)
+        scheduler.start()
+
     yield
-    scheduler.shutdown()
+
+    if scheduler.running:
+        scheduler.shutdown()
+
 
 app = FastAPI(
     title="Despensa Inteligente API",
     description="Backend para gerenciamento de estoque doméstico, leitura de notas fiscais e geração de receitas com IA.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configuração de CORS para permitir requisições do App React Native / Expo
@@ -37,6 +48,7 @@ app.include_router(receipts.router, prefix="/api/receipts", tags=["Notas Fiscais
 app.include_router(recipes.router, prefix="/api/recipes", tags=["Receitas"])
 app.include_router(items.router, prefix="/api/items", tags=["Itens"])
 app.include_router(test_firebase.router)
+
 
 @app.get("/", tags=["Health Check"])
 def health_check():

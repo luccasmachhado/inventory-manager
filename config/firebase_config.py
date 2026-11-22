@@ -12,10 +12,13 @@ CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 _db = None
 
 
-def _init_firebase():
+def init_firebase():
+    """Inicializa o Firebase Admin SDK apenas uma vez."""
     if not firebase_admin._apps:
         if CREDENTIALS_JSON:
             cred_dict = json.loads(CREDENTIALS_JSON)
+            if isinstance(cred_dict.get("private_key"), str):
+                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
         elif os.path.exists(CREDENTIALS_PATH):
@@ -28,7 +31,7 @@ def _init_firebase():
 def get_db():
     """Dependency do FastAPI para injetar o cliente do Firestore nas rotas."""
     global _db
+    init_firebase()
     if _db is None:
-        _init_firebase()
         _db = firestore.client()
     return _db
