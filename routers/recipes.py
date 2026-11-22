@@ -13,41 +13,51 @@ class RecipeRequest(BaseModel):
 
 @router.post("/generate")
 def create_recipe(
-    payload: RecipeRequest, 
-    current_user: dict = Depends(get_current_user)
+    payload: RecipeRequest,
+    current_user: dict = Depends(get_current_user),
 ):
     """Gera receita utilizando os ingredientes e salva no Firestore para o usuário logado."""
     if not payload.ingredients:
-        raise HTTPException(status_code=400, detail="A lista de ingredientes não pode estar vazia.")
-    
+        raise HTTPException(
+            status_code=400, detail="A lista de ingredientes não pode estar vazia."
+        )
+
     try:
         uid = current_user["uid"]
-        
+
         # 1. Gera a receita via serviço do Gemini
         recipe_text = generate_recipe_from_ingredients(payload.ingredients)
-        
+
         # 2. Salva a receita no Firestore associada ao usuário
         db = get_db()
         doc_ref = db.collection("recipes").document()
-        
+
         recipe_data = {
             "id": doc_ref.id,
             "user_id": uid,
             "ingredients": payload.ingredients,
             "recipe": recipe_text,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().isoformat(),
         }
-        
+
         doc_ref.set(recipe_data)
-        
+
         return {
             "status": "success",
-            "data": recipe_data
+            "data": recipe_data,
         }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "503" in msg or "UNAVAILABLE" in msg.upper():
+            raise HTTPException(
+                status_code=503,
+                detail="O serviço de IA está com alta demanda no momento. Tente novamente em instantes.",
+            )
+        raise HTTPException(status_code=500, detail=msg)
+        
 @router.get("/my-recipes")
 def get_my_recipes(current_user: dict = Depends(get_current_user)):
     """Busca as receitas geradas e salvas pelo usuário autenticado."""
