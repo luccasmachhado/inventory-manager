@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from config.firebase_config import init_firebase
 from routers import auth, notifications, receipts, recipes, test_firebase, items
 from services.telegram_service import check_and_notify_expiring_items
 
-scheduler = AsyncIOScheduler()
+TIMEZONE_LOCAL = ZoneInfo("America/Fortaleza")
+scheduler = AsyncIOScheduler(timezone=TIMEZONE_LOCAL)
 
 
 @asynccontextmanager
@@ -14,9 +17,14 @@ async def lifespan(app: FastAPI):
     # Inicializa o Firebase Admin SDK na subida da API
     init_firebase()
 
-    # Inicia a verificação automática a cada 6 horas
+    # Varredura completa de todo o estoque todos os dias às 00:00 (America/Fortaleza)
     if not scheduler.running:
-        scheduler.add_job(check_and_notify_expiring_items, "interval", hours=6)
+        scheduler.add_job(
+            check_and_notify_expiring_items,
+            trigger=CronTrigger(hour=0, minute=0, timezone=TIMEZONE_LOCAL),
+            id="daily_midnight_expiration_check",
+            replace_existing=True,
+        )
         scheduler.start()
 
     yield
