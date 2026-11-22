@@ -150,4 +150,10 @@ def process_and_save_ocr_base64(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        msg = str(e)
+        if "503" in msg or "UNAVAILABLE" in msg.upper():
+            raise HTTPException(
+                status_code=503,
+                detail="O serviço de IA está com alta demanda no momento. Tente novamente em instantes.",
+            )
+        raise HTTPException(status_code=500, detail=msg)
