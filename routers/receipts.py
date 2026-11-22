@@ -6,6 +6,8 @@ from services.gemini_service import analyze_receipt_image
 from services.auth_service import get_current_user
 from config.firebase_config import get_db
 from datetime import datetime
+import base64
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -56,23 +58,35 @@ def process_and_save_qrcode(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/ocr-image")
-async def process_and_save_ocr_image(
-    file: UploadFile = File(...),
+class OcrBase64Request(BaseModel):
+    image_base64: str
+    mime_type: Optional[str] = "image/jpeg"
+    filename: Optional[str] = "nota-fiscal.jpg"
+
+
+@router.post("/ocr-base64")
+def process_and_save_ocr_base64(
+    payload: OcrBase64Request,
     current_user: dict = Depends(get_current_user),
 ):
-    """Processa imagem da nota fiscal via Gemini OCR e salva os itens automaticamente para o usuário logado."""
+    """Recebe imagem em base64 via JSON, processa via Gemini OCR e salva os itens no Firestore."""
     try:
         uid = current_user["uid"]
-        image_bytes = await file.read()
-        print("DEBUG OCR -> filename:", file.filename, "content_type:", file.content_type, "len:", len(image_bytes), "head:", image_bytes[:10])
 
+        b64_clean = payload.image_base64.strip()
+        if "," in b64_clean and b64_clean.startswith("data:"):
+            b64_clean = b64_clean.split(",", 1)[1]
+
+        if not b64_clean:
+            raise HTTPException(status_code=400, detail="Imagem base64 vazia.")
+
+        image_bytes = base64.b64decode(b64_clean)
         if not image_bytes:
-            raise HTTPException(status_code=400, detail="Arquivo de imagem vazio.")
+            raise HTTPException(status_code=400, detail="Falha ao decodificar imagem.")
 
         result_json = analyze_receipt_image(
             image_bytes=image_bytes,
-            mime_type=file.content_type or "image/jpeg",
+            mime_type=payload.mime_type or "image/jpeg",
         )
 
         raw_items = (
@@ -80,7 +94,11 @@ async def process_and_save_ocr_image(
             if isinstance(result_json, dict)
             else result_json
         )
-        items_list = [i for i in raw_items if isinstance(i, dict)] if isinstance(raw_items, list) else []
+        items_list = (
+            [i for i in raw_items if isinstance(i, dict)]
+            if isinstance(raw_items, list)
+            else []
+        )
 
         db = get_db()
         saved_items = []
