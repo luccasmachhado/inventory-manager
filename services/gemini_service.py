@@ -21,8 +21,8 @@ def _is_erro_503(exc: Exception) -> bool:
 def _gerar_com_retry(
     modelo: str,
     contents,
-    max_tentativas: int = 4,
-    espera_inicial: float = 1.5,
+    max_tentativas: int = 2,
+    espera_inicial: float = 1.0,
 ):
     ultimo_erro = None
     for tentativa in range(max_tentativas):
@@ -35,7 +35,7 @@ def _gerar_com_retry(
             ultimo_erro = e
             if not _is_erro_503(e) or tentativa == max_tentativas - 1:
                 raise
-            time.sleep(espera_inicial * (2 ** tentativa))  # 1.5s, 3.0s, 6.0s
+            time.sleep(espera_inicial * (2 ** tentativa))
     raise ultimo_erro
 
 
@@ -44,16 +44,16 @@ def _chamar_com_fallback(contents):
         return _gerar_com_retry(
             MODELO_PRINCIPAL,
             contents,
-            max_tentativas=4,
-            espera_inicial=1.5,
+            max_tentativas=2,
+            espera_inicial=1.0,
         )
     except Exception as e:
         if _is_erro_503(e) and MODELO_FALLBACK:
             return _gerar_com_retry(
                 MODELO_FALLBACK,
                 contents,
-                max_tentativas=2,
-                espera_inicial=1.5,
+                max_tentativas=1,
+                espera_inicial=1.0,
             )
         raise
 
